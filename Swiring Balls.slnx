@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="Swiring Balls/Swiring Balls.vcxproj" />
+  <Project Path="Swiring Balls/Swiring Balls.vcxproj" Id="91e72978-70b4-460e-9ddb-fd865a4963c2" />
 </Solution>
