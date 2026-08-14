@@ -3,6 +3,7 @@
 #include<vector>
 #include<cmath>
 #include<SDL3/SDL.h>
+#include <random>
 
 struct Ball {
 	float x, y;
@@ -74,16 +75,29 @@ int main(int argc, char* argv[])
     bool running = true;
     SDL_Event event;
 
+	// Set random seed
+	std::random_device rd;
+	std::uniform_real_distribution<float> distrib(0.0f, 1.0f);
+
 	// Create balls
-	std::vector <Ball> balls = { 
-        { 200.0f, 300.0f, 2.0f, 1.5f, 20.0f, {255, 0, 0, 255} }, 
-		{ 400.0f, 500.0f, -1.0f, 2.5f, 20.0f, {0, 255, 0, 255} },
-		{ 600.0f, 200.0f, 1.5f, -2.0f, 20.0f, {0, 0, 255, 255} },
-		{ 100.0f, 250.0f, 2.5f, 0.5f, 20.0f, {255, 255, 0, 255} },
-		{ 300.0f, 100.0f, -1.5f, 1.5f, 20.0f, {255, 0, 255, 255} },
-		{ 700.0f, 550.0f, 1.0f, -0.5f, 20.0f, {0, 255, 255, 255} },
-		{ 600.0f, 150.0f, -0.5f, 2.5f, 20.0f, {255, 255, 255, 255} }
-    };
+	std::vector <Ball> balls;
+	int numBalls = 200;
+
+	for (int i = 0; i < numBalls; ++i) {
+		float radius = distrib(rd) * 3.0f + 1.0f;
+		float x = distrib(rd) * (SCREEN_WIDTH - 2 * radius) + radius;
+		float y = distrib(rd) * (SCREEN_HEIGHT - 2 * radius) + radius;
+		float vx = distrib(rd) * 4.0f - 2.0f;
+		float vy = distrib(rd) * 4.0f - 2.0f;
+		SDL_Color color = { static_cast<Uint8>(distrib(rd) * 255), static_cast<Uint8>(distrib(rd) * 255), static_cast<Uint8>(distrib(rd) * 255), 255 };
+		balls.push_back({ x, y, vx, vy, radius, color });
+	}
+
+	// FPS
+	Uint64 lastTime = SDL_GetTicks();
+	int frameCount = 0;
+	int fps = 0;
+	int fpsCheckCounter = 0;
 
 	while (running) {
 		while (SDL_PollEvent(&event)) {
@@ -99,8 +113,10 @@ int main(int argc, char* argv[])
             ball.x += ball.vx;
             ball.y += ball.vy;
 
-            if (ball.x - ball.radius < 0 || ball.x + ball.radius > SCREEN_WIDTH) ball.vx *= -1;
-            if (ball.y - ball.radius < 0 || ball.y + ball.radius > SCREEN_HEIGHT) ball.vy *= -1;
+			if (ball.x - ball.radius < 0) { ball.x = ball.radius; ball.vx *= -1; }
+			else if (ball.x + ball.radius > SCREEN_WIDTH) { ball.x = SCREEN_WIDTH - ball.radius; ball.vx *= -1; }
+			if (ball.y - ball.radius < 0) { ball.y = ball.radius; ball.vy *= -1; }
+			else if (ball.y + ball.radius > SCREEN_HEIGHT) { ball.y = SCREEN_HEIGHT - ball.radius; ball.vy *= -1; }
         }
 
 		// Collision detection
@@ -118,7 +134,19 @@ int main(int argc, char* argv[])
 
 		SDL_RenderPresent(renderer);
 
-		SDL_Delay(8); //120 FPS
+		// FPS calculation
+		frameCount++;
+		Uint64 currentTime = SDL_GetTicks();
+
+		if (currentTime - lastTime >= 1000) {
+			fpsCheckCounter++;
+			fps = frameCount;
+			std::cout << fpsCheckCounter << ". FPS: " << fps << std::endl;
+
+			// Reset
+			frameCount = 0;
+			lastTime = currentTime;
+		}
 	}
 
 	SDL_DestroyRenderer(renderer);
