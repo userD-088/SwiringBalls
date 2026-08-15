@@ -7,6 +7,24 @@
 #include<SDL3/SDL_ttf.h>
 #include<string>
 
+// Include Windows-specific headers for memory usage
+#ifdef _WIN32
+#include <windows.h>
+#include <psapi.h>
+#endif
+
+// RAM usage function for Windows
+size_t GetProcessRAMUsageMB() {
+#ifdef _WIN32
+	PROCESS_MEMORY_COUNTERS info;
+	if (GetProcessMemoryInfo(GetCurrentProcess(), &info, sizeof(info))) {
+		return info.WorkingSetSize / (1024 * 1024); // Convert bytes to MB
+	}
+#endif
+	return 0;
+}
+
+// Ball struct
 struct Ball {
 	float x, y;
 	float vx, vy;
@@ -14,6 +32,7 @@ struct Ball {
 	SDL_Color color;
 };
 
+// Function to draw a ball
 void DrawBall(SDL_Renderer* renderer, const Ball& ball) {
     SDL_SetRenderDrawColor(renderer, ball.color.r, ball.color.g, ball.color.b, ball.color.a);
 
@@ -28,6 +47,7 @@ void DrawBall(SDL_Renderer* renderer, const Ball& ball) {
     }
 }
 
+// Collision detection function of two balls
 void CollisionDetection(Ball& ball1, Ball& ball2) {
 	float dx = ball2.x - ball1.x;
 	float dy = ball2.y - ball1.y;
@@ -46,6 +66,7 @@ void CollisionDetection(Ball& ball1, Ball& ball2) {
 	}
 }
 
+// Function to render text
 void RenderText(SDL_Renderer* renderer, TTF_Font* font, const std::string& text, float x, float y, SDL_Color color) {
 	if (!font || text.empty()) return;
 
@@ -63,6 +84,7 @@ void RenderText(SDL_Renderer* renderer, TTF_Font* font, const std::string& text,
 	SDL_DestroySurface(surface);
 }
 
+// Main function
 int main(int argc, char* argv[])
 {
 	// Initialize SDL
@@ -109,8 +131,12 @@ int main(int argc, char* argv[])
 		SDL_Log("Font could not be loaded: %s", SDL_GetError());
 	}
 
+	// Main loop variables
     bool running = true;
     SDL_Event event;
+
+	// Performance variables
+	size_t currentRamMB = 0;
 
 	// Set random seed
 	std::random_device rd;
@@ -176,9 +202,15 @@ int main(int argc, char* argv[])
 
 		// Render FPS-Text
 		if (font) {
-			SDL_Color textColor = { 255, 255, 255, 255 }; // Weiß
+			SDL_Color textColor = { 255, 255, 255, 255 };
+
+			// Render FPS
 			std::string fpsText = "FPS: " + std::to_string(fps);
 			RenderText(renderer, font, fpsText, 10.0f, 10.0f, textColor);
+
+			// Render RAM usage
+			std::string ramText = "RAM: " + std::to_string(currentRamMB) + " MB";
+			RenderText(renderer, font, ramText, 10.0f, 40.0f, textColor);
 		}
 
 		// Present the rendered frame
@@ -192,6 +224,8 @@ int main(int argc, char* argv[])
 			fps = frameCount;
 			frameCount = 0;
 			lastTime = currentTime;
+
+			currentRamMB = GetProcessRAMUsageMB();
 		}
 
 	}
