@@ -263,7 +263,6 @@ int main(int argc, char* argv[])
         if (font) {
             SDL_Color textColor = { 255, 255, 255, 255 };
 
-            // FPS
             std::string fpsText = "FPS: " + std::to_string(fps);
             RenderText(renderer, font, fpsText, 10.0f, 10.0f, textColor);
 
