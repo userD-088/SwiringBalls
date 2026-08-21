@@ -7,31 +7,29 @@
 #include <SDL3/SDL_ttf.h>
 #include <string>
 
-// Include Windows-specific headers for System Metrics
 #ifdef _WIN32
 #include <windows.h>
 #include <psapi.h>
 #endif
 
-// Helper to convert FILETIME to 64-bit integer
 #ifdef _WIN32
 static ULONGLONG FileTimeToUint64(const FILETIME& ft) {
     return (static_cast<ULONGLONG>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
 }
 #endif
 
-// RAM usage function for Windows
+// Function to get the current process RAM usage in MB
 size_t GetProcessRAMUsageMB() {
 #ifdef _WIN32
     PROCESS_MEMORY_COUNTERS info;
     if (GetProcessMemoryInfo(GetCurrentProcess(), &info, sizeof(info))) {
-        return info.WorkingSetSize / (1024 * 1024); // Convert bytes to MB
+        return info.WorkingSetSize / (1024 * 1024);
     }
 #endif
     return 0;
 }
 
-// CPU Usage tracker for Windows
+// CPUUsageTracker class to track CPU usage
 class CPUUsageTracker {
 #ifdef _WIN32
     ULONGLONG lastKernelTime = 0;
@@ -46,18 +44,35 @@ public:
         SYSTEM_INFO sysInfo;
         GetSystemInfo(&sysInfo);
         numProcessors = sysInfo.dwNumberOfProcessors;
-        Update(); // Pre-fill initial values
+        Update();
 #endif
     }
 
-    float Update() {
+    int GetCoreCount() const {
+#ifdef _WIN32
+        return numProcessors;
+#else
+        return 1;
+#endif
+    }
+
+    int GetCurrentCoreID() {
+#ifdef _WIN32
+        return static_cast<int>(GetCurrentProcessorNumber());
+#else
+        return 0;
+#endif
+    }
+
+    // Parameters: showPerCore = true -> 0-100% per Core; showPerCore = false -> 0-100% Total System
+    float Update(bool showPerCore = false) {
 #ifdef _WIN32
         FILETIME ftime, fsys, fuser;
         FILETIME fcreation, fexit, fkernel, fuserProc;
 
         GetSystemTimeAsFileTime(&ftime);
-        GetSystemStoreTime(&fsys, &fuser); // System Total Time
-        GetProcessTimes(GetCurrentProcess(), &fcreation, &fexit, &fkernel, &fuserProc); // Process Time
+        GetSystemStoreTime(&fsys, &fuser);
+        GetProcessTimes(GetCurrentProcess(), &fcreation, &fexit, &fkernel, &fuserProc);
 
         ULONGLONG currentSystemTime = FileTimeToUint64(ftime);
         ULONGLONG currentKernelTime = FileTimeToUint64(fkernel);
@@ -71,8 +86,11 @@ public:
         lastUserTime = currentUserTime;
 
         if (sysDelta > 0) {
-            // Divide by core count to get process CPU percentage relative to entire system
-            return (static_cast<float>(procDelta) / sysDelta / numProcessors) * 100.0f;
+            float usage = (static_cast<float>(procDelta) / sysDelta) * 100.0f;
+            if (!showPerCore && numProcessors > 0) {
+                usage /= numProcessors; // Normalize over all cores
+            }
+            return usage;
         }
 #endif
         return 0.0f;
@@ -95,7 +113,7 @@ struct Ball {
     SDL_Color color;
 };
 
-// Function to draw a ball
+// Function to draw a filled circle (ball) using SDL_Renderer
 void DrawBall(SDL_Renderer* renderer, const Ball& ball) {
     SDL_SetRenderDrawColor(renderer, ball.color.r, ball.color.g, ball.color.b, ball.color.a);
 
@@ -110,7 +128,7 @@ void DrawBall(SDL_Renderer* renderer, const Ball& ball) {
     }
 }
 
-// Collision detection function of two balls
+// Function to handle collision detection and response between two balls
 void CollisionDetection(Ball& ball1, Ball& ball2) {
     float dx = ball2.x - ball1.x;
     float dy = ball2.y - ball1.y;
@@ -129,7 +147,7 @@ void CollisionDetection(Ball& ball1, Ball& ball2) {
     }
 }
 
-// Function to render text
+// Function to render text using SDL_ttf
 void RenderText(SDL_Renderer* renderer, TTF_Font* font, const std::string& text, float x, float y, SDL_Color color) {
     if (!font || text.empty()) return;
 
@@ -148,20 +166,18 @@ void RenderText(SDL_Renderer* renderer, TTF_Font* font, const std::string& text,
 // Main function
 int main(int argc, char* argv[])
 {
-    // Initialize SDL
+	// Initialize SDL and TTF
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
     }
 
-    // Initialize TTF
     if (!TTF_Init()) {
         SDL_Log("TTF_Init failed: %s", SDL_GetError());
         SDL_Quit();
         return 1;
     }
 
-    // Create window
     SDL_Window* window = SDL_CreateWindow(
         WINDOW_TITLE.c_str(),
         SCREEN_WIDTH,
@@ -175,7 +191,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // Create renderer
+	// Create a renderer with hardware acceleration and vsync
     SDL_Renderer* renderer = SDL_CreateRenderer(window, NULL);
     if (!renderer) {
         SDL_Log("SDL_CreateRenderer failed: %s", SDL_GetError());
@@ -186,28 +202,29 @@ int main(int argc, char* argv[])
 
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 
-    // Load font
+	// Load font
     TTF_Font* font = TTF_OpenFont("Extensions\\fonts\\Roboto-Regular.ttf", 24.0f);
     if (!font) {
         SDL_Log("Font could not be loaded: %s", SDL_GetError());
     }
 
-    // Main loop variables
+	// Variable initialization
     bool running = true;
     SDL_Event event;
 
-    // Performance variables
     size_t currentRamMB = 0;
     float currentCpuUsage = 0.0f;
+    int currentCoreID = 0;
+    bool showSingleCoreView = false; // Toggle with 'C' key
+
     CPUUsageTracker cpuTracker;
 
-    // Set random seed
     std::random_device rd;
     std::uniform_real_distribution<float> distrib(0.0f, 1.0f);
 
-    // Create balls
+	// Create balls
     std::vector<Ball> balls;
-    int numBalls = 1000;
+	int numBalls = 1000; // Adjust the number of balls as needed
 
     for (int i = 0; i < numBalls; ++i) {
         float radius = distrib(rd) * 3.0f + 1.0f;
@@ -219,20 +236,27 @@ int main(int argc, char* argv[])
         balls.push_back({ x, y, vx, vy, radius, color });
     }
 
-    // FPS
+	// FPS variables
     Uint64 lastTime = SDL_GetTicks();
     int frameCount = 0;
     int fps = 0;
 
-    // Main loop
+	// Main loop
     while (running) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) {
                 running = false;
             }
+            else if (event.type == SDL_EVENT_KEY_DOWN) {
+                // Press 'C' to toggle CPU view (System-wide vs. Single Core)
+                if (event.key.key == SDLK_C) {
+                    showSingleCoreView = !showSingleCoreView;
+                    currentCpuUsage = cpuTracker.Update(showSingleCoreView);
+                }
+            }
         }
 
-        // Update ball positions and handle wall collisions
+		// Update ball positions and handle collisions
         for (auto& ball : balls) {
             ball.x += ball.vx;
             ball.y += ball.vy;
@@ -243,43 +267,46 @@ int main(int argc, char* argv[])
             else if (ball.y + ball.radius > SCREEN_HEIGHT) { ball.y = SCREEN_HEIGHT - ball.radius; ball.vy *= -1; }
         }
 
-        // Collision detection
         for (size_t i = 0; i < balls.size(); ++i) {
             for (size_t j = i + 1; j < balls.size(); ++j) {
                 CollisionDetection(balls[i], balls[j]);
             }
         }
 
-        // Clear the screen
         SDL_SetRenderDrawColorFloat(renderer, 0.1f, 0.1f, 0.1f, 1.0f);
         SDL_RenderClear(renderer);
 
-        // Render balls
         for (const auto& ball : balls) {
             DrawBall(renderer, ball);
         }
 
-        // Render Performance Text
+		// Render FPS, RAM, and CPU usage
         if (font) {
             SDL_Color textColor = { 255, 255, 255, 255 };
+            SDL_Color hintColor = { 180, 180, 180, 255 };
 
             std::string fpsText = "FPS: " + std::to_string(fps);
             RenderText(renderer, font, fpsText, 10.0f, 10.0f, textColor);
 
-            // RAM
             std::string ramText = "RAM: " + std::to_string(currentRamMB) + " MB";
             RenderText(renderer, font, ramText, 10.0f, 40.0f, textColor);
 
-            // CPU
-            char cpuBuffer[32];
-            snprintf(cpuBuffer, sizeof(cpuBuffer), "CPU: %.1f %%", currentCpuUsage);
+            // CPU Output
+            char cpuBuffer[64];
+            if (showSingleCoreView) {
+                snprintf(cpuBuffer, sizeof(cpuBuffer), "CPU (Core %d Load): %.1f %%", currentCoreID, currentCpuUsage);
+            }
+            else {
+                snprintf(cpuBuffer, sizeof(cpuBuffer), "CPU (Total System): %.1f %%", currentCpuUsage);
+            }
             RenderText(renderer, font, cpuBuffer, 10.0f, 70.0f, textColor);
+
+            RenderText(renderer, font, "[Press C: Switch View]", 10.0f, 100.0f, hintColor);
         }
 
-        // Present the rendered frame
         SDL_RenderPresent(renderer);
 
-        // FPS & Metrics calculation (once per second)
+		// Update FPS and system metrics every second
         frameCount++;
         Uint64 currentTime = SDL_GetTicks();
 
@@ -289,10 +316,12 @@ int main(int argc, char* argv[])
             lastTime = currentTime;
 
             currentRamMB = GetProcessRAMUsageMB();
-            currentCpuUsage = cpuTracker.Update();
+            currentCpuUsage = cpuTracker.Update(showSingleCoreView);
+            currentCoreID = cpuTracker.GetCurrentCoreID();
         }
     }
 
+	// Cleanup
     if (font) TTF_CloseFont(font);
     TTF_Quit();
     SDL_DestroyRenderer(renderer);
